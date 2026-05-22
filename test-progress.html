@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>노써치 테스트 진척도 - 지금 어디까지 검증했는가</title>
+  <meta name="description" content="카테고리별 테스트 진척도와 예정된 업데이트 일정을 한눈에 확인할 수 있습니다. 노써치는 진행 중인 검증 상태도 숨기지 않고 공개합니다.">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* ── progress bar ── */
+    .progress-bar-track {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--gray-3);
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--primary);
+      transition: width 0.4s ease;
+    }
+    .progress-bar-fill.yellow {
+      background: #f59e0b;
+    }
+    .progress-bar-fill.red {
+      background: var(--accent-red);
+    }
+    .progress-bar-fill.green {
+      background: #22c55e;
+    }
+
+    /* ── progress card ── */
+    .progress-card {
+      background: rgba(255,255,255,0.92);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: 22px;
+    }
+    .progress-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .progress-card h3 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: -0.03em;
+    }
+    .progress-card p {
+      margin: 8px 0 0;
+      font-size: 13px;
+      color: var(--gray-dark);
+    }
+    .progress-pct {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      white-space: nowrap;
+    }
+    .progress-meta {
+      display: flex;
+      gap: 16px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    .progress-meta span {
+      font-size: 12px;
+      color: var(--gray-7);
+    }
+    .progress-meta span strong {
+      color: var(--gray-10);
+    }
+
+    /* ── progress grid ── */
+    .progress-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    /* ── schedule timeline ── */
+    .schedule-list {
+      display: grid;
+      gap: 12px;
+    }
+    .schedule-row {
+      display: grid;
+      grid-template-columns: 88px 1fr auto;
+      gap: 16px;
+      align-items: center;
+      padding: 16px 20px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .schedule-date {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--gray-7);
+      letter-spacing: 0.02em;
+    }
+    .schedule-date span {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-5);
+      margin-top: 2px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .schedule-info h4 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+    .schedule-info p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--gray-dark);
+    }
+
+    /* ── summary kpi bar ── */
+    .summary-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    .summary-kpi {
+      padding: 20px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .summary-kpi strong {
+      display: block;
+      font-size: 12px;
+      color: var(--gray-7);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .summary-kpi span {
+      display: block;
+      margin-top: 10px;
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    @media (max-width: 980px) {
+      .progress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .summary-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .progress-grid { grid-template-columns: 1fr; }
+      .summary-bar { grid-template-columns: 1fr 1fr; }
+      .schedule-row { grid-template-columns: 72px 1fr; }
+      .schedule-row .chip { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">N</span>
+        <span class="brand-copy"><strong>노써치</strong><span>nosearch</span></span>
+      </a>
+      <nav class="main-nav">
+        <a href="main.html">메인</a>
+        <a href="guides.html">구매가이드</a>
+        <a href="update-schedule.html">업데이트</a>
+        <a href="verification.html">검증</a>
+        <a class="is-active" href="test-progress.html">진척도</a>
+        <a class="nav-cta" href="categories.html">카테고리</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <div class="container page-hero-grid">
+        <div>
+          <span class="eyebrow"><span class="eyebrow-dot"></span>test progress</span>
+          <h1>지금 어디까지<br>검증하고 있는지 공개합니다.</h1>
+          <p>노써치는 완성된 결과만 보여주지 않습니다. 현재 진행 중인 테스트 상태와 앞으로의 업데이트 일정을 함께 공개해 서비스의 신뢰도를 실시간으로 쌓아갑니다.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#progress">카테고리별 진척도</a>
+            <a class="btn btn-secondary" href="#schedule">예정 업데이트 일정</a>
+            <a class="btn btn-tertiary" href="verification.html">검증 프로세스 보기</a>
+          </div>
+        </div>
+        <aside class="hero-note">
+          <strong>진척도 기준 안내</strong>
+          <ul class="list">
+            <li><strong>완료 (80~100%)</strong> — 기준표, 테스트, 추천 모두 반영된 상태</li>
+            <li><strong>진행 중 (40~79%)</strong> — 테스트 완료, 가이드 작성 중</li>
+            <li><strong>준비 중 (0~39%)</strong> — 기준 수립 또는 테스트 계획 단계</li>
+            <li>시즌 카테고리는 시즌 직전에 우선 갱신됩니다</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <!-- 요약 KPI -->
+    <section class="section" style="padding-bottom: 0;">
+      <div class="container">
+        <div class="summary-bar">
+          <div class="summary-kpi">
+            <strong>전체 카테고리</strong>
+            <span>21</span>
+          </div>
+          <div class="summary-kpi">
+            <strong>테스트 완료</strong>
+            <span style="color: var(--success-text);">12</span>
+          </div>
+          <div class="summary-kpi">
+            <strong>진행 중</strong>
+            <span style="color: #b35b00;">6</span>
+          </div>
+          <div class="summary-kpi">
+            <strong>준비 중</strong>
+            <span style="color: var(--danger-text);">3</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 카테고리별 진척도 -->
+    <section id="progress" class="section section-muted">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>카테고리별 테스트 진척도</h2>
+            <p>각 카테고리가 현재 어느 단계에 있는지, 테스트 항목 중 몇 개가 완료됐는지 투명하게 보여줍니다.</p>
+          </div>
+          <a class="section-link" href="verification.html">검증 방법론 →</a>
+        </div>
+
+        <div style="margin-bottom: 10px;">
+          <span class="chip green" style="margin-right: 8px;">생활가전</span>
+        </div>
+        <div class="progress-grid" style="margin-bottom: 28px;">
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>공기청정기</h3>
+                <p>면적 대비 CADR, 필터 수명, 소음 실측 포함</p>
+              </div>
+              <span class="progress-pct" style="color: var(--success-text);">92%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill green" style="width:92%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>11/12</strong></span>
+              <span>마지막 갱신 <strong>2026.04.18</strong></span>
+              <span><span class="chip green" style="font-size:11px;padding:4px 8px;">완료</span></span>
+            </div>
+          </div>
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>로봇청소기</h3>
+                <p>흡입력, 장애물 감지, 소음, 배터리 실측</p>
+              </div>
+              <span class="progress-pct" style="color: #b35b00;">58%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill yellow" style="width:58%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>7/12</strong></span>
+              <span>목표 완료 <strong>2026.06.30</strong></span>
+              <span><span class="chip" style="font-size:11px;padding:4px 8px;">진행 중</span></span>
+            </div>
+          </div>
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>무선청소기</h3>
+                <p>흡입력 지속성, 헤드 교체성, 필터 유지비</p>
+              </div>
+              <span class="progress-pct" style="color: var(--success-text);">85%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill green" style="width:85%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>10/12</strong></span>
+              <span>마지막 갱신 <strong>2026.03.22</strong></span>
+              <span><span class="chip green" style="font-size:11px;padding:4px 8px;">완료</span></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 10px;">
+          <span class="chip" style="margin-right: 8px; background: var(--warning-bg); color: var(--warning-text);">시즌가전</span>
+        </div>
+        <div class="progress-grid" style="margin-bottom: 28px;">
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>에어컨</h3>
+                <p>평형 대비 냉방 효율, 설치비 시뮬레이션 포함</p>
+              </div>
+              <span class="progress-pct" style="color: var(--success-text);">88%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill green" style="width:88%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>11/13</strong></span>
+              <span>마지막 갱신 <strong>2026.04.05</strong></span>
+              <span><span class="chip green" style="font-size:11px;padding:4px 8px;">시즌 완료</span></span>
+            </div>
+          </div>
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>제습기</h3>
+                <p>공간별 제습 용량, 소음, 전력 효율 측정</p>
+              </div>
+              <span class="progress-pct" style="color: #b35b00;">64%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill yellow" style="width:64%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>7/11</strong></span>
+              <span>목표 완료 <strong>2026.06.15</strong></span>
+              <span><span class="chip" style="font-size:11px;padding:4px 8px;">진행 중</span></span>
+            </div>
+          </div>
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>선풍기</h3>
+                <p>소음 실측, 바람 세기, 리모컨·앱 연동</p>
+              </div>
+              <span class="progress-pct" style="color: var(--danger-text);">28%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill red" style="width:28%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>3/11</strong></span>
+              <span>목표 완료 <strong>2026.07.10</strong></span>
+              <span><span class="chip red" style="font-size:11px;padding:4px 8px;">준비 중</span></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 10px;">
+          <span class="chip gray" style="margin-right: 8px;">디지털</span>
+        </div>
+        <div class="progress-grid">
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>노트북</h3>
+                <p>사용 목적별 CPU·GPU 벤치, 배터리 실측</p>
+              </div>
+              <span class="progress-pct" style="color: var(--success-text);">96%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill green" style="width:96%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>13/14</strong></span>
+              <span>마지막 갱신 <strong>2026.05.01</strong></span>
+              <span><span class="chip green" style="font-size:11px;padding:4px 8px;">완료</span></span>
+            </div>
+          </div>
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>모니터</h3>
+                <p>색재현율, 응답속도, 패널별 특성 비교</p>
+              </div>
+              <span class="progress-pct" style="color: #b35b00;">71%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill yellow" style="width:71%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>9/13</strong></span>
+              <span>목표 완료 <strong>2026.06.28</strong></span>
+              <span><span class="chip" style="font-size:11px;padding:4px 8px;">진행 중</span></span>
+            </div>
+          </div>
+          <div class="progress-card">
+            <div class="progress-card-head">
+              <div>
+                <h3>무선이어폰</h3>
+                <p>노이즈캔슬링 실측, 배터리, 통화 품질</p>
+              </div>
+              <span class="progress-pct" style="color: var(--danger-text);">32%</span>
+            </div>
+            <div class="progress-bar-track"><div class="progress-bar-fill red" style="width:32%"></div></div>
+            <div class="progress-meta">
+              <span>테스트 항목 <strong>4/13</strong></span>
+              <span>목표 완료 <strong>2026.07.31</strong></span>
+              <span><span class="chip red" style="font-size:11px;padding:4px 8px;">준비 중</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 예정 업데이트 일정 -->
+    <section id="schedule" class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>예정 업데이트 일정</h2>
+            <p>언제, 어떤 카테고리가 갱신될지 미리 공개합니다. 일정은 테스트 진행 상황에 따라 조정될 수 있으며, 변경 시 이 페이지에 바로 반영됩니다.</p>
+          </div>
+          <a class="section-link" href="update-schedule.html">전체 운영 캘린더 →</a>
+        </div>
+
+        <div class="schedule-list">
+          <div class="schedule-row">
+            <div class="schedule-date">
+              2026.06.15
+              <span>2주 후</span>
+            </div>
+            <div class="schedule-info">
+              <h4>제습기 구매가이드 업데이트</h4>
+              <p>2026년형 신제품 반영, 공간별 제습 용량 기준 재정리, 에너지 소비효율 비교표 추가</p>
+            </div>
+            <span class="chip" style="background: var(--warning-bg); color: var(--warning-text);">시즌 대응</span>
+          </div>
+          <div class="schedule-row">
+            <div class="schedule-date">
+              2026.06.28
+              <span>3.5주 후</span>
+            </div>
+            <div class="schedule-info">
+              <h4>모니터 구매가이드 · 노써치픽 개정</h4>
+              <p>2026년 하반기 신제품 편입, 게이밍 vs 업무용 분류 기준 재정비, 32인치 이상 추천 확대</p>
+            </div>
+            <span class="chip">신제품 반영</span>
+          </div>
+          <div class="schedule-row">
+            <div class="schedule-date">
+              2026.07.10
+              <span>7주 후</span>
+            </div>
+            <div class="schedule-info">
+              <h4>선풍기 구매가이드 1차 공개</h4>
+              <p>DC·AC 모터 비교, 소음 dB 기준표, 스마트 연동 모델 테스트 결과 포함 예정</p>
+            </div>
+            <span class="chip red">신규</span>
+          </div>
+          <div class="schedule-row">
+            <div class="schedule-date">
+              2026.07.31
+              <span>10주 후</span>
+            </div>
+            <div class="schedule-info">
+              <h4>무선이어폰 가이드 대폭 개편</h4>
+              <p>브랜드별 노이즈캔슬링 실측 데이터, 착용감 분류, 통화 품질 항목 추가</p>
+            </div>
+            <span class="chip red">신규</span>
+          </div>
+          <div class="schedule-row">
+            <div class="schedule-date">
+              2026.08.20
+              <span>13주 후</span>
+            </div>
+            <div class="schedule-info">
+              <h4>로봇청소기 픽 전면 재편</h4>
+              <p>장애물 회피 알고리즘 세대 교체 반영, 2026년형 신규 편입, 층간 소음 기준 개정</p>
+            </div>
+            <span class="chip">대폭 개정</span>
+          </div>
+          <div class="schedule-row">
+            <div class="schedule-date">
+              2026.09.15
+              <span>17주 후</span>
+            </div>
+            <div class="schedule-info">
+              <h4>가을·겨울 시즌 가전 일괄 선점 갱신</h4>
+              <p>가습기, 공기청정기, 난방기 등 시즌 진입 카테고리 조기 업데이트 예정</p>
+            </div>
+            <span class="chip" style="background: var(--warning-bg); color: var(--warning-text);">시즌 선점</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 진척도 철학 -->
+    <section class="section section-muted">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>왜 진척도를 공개하는가</h2>
+            <p>아직 완성되지 않은 영역을 숨기지 않는 것이 노써치의 운영 원칙입니다.</p>
+          </div>
+        </div>
+        <div class="split">
+          <div class="quote-box">
+            <blockquote>"완성된 것만 보여주는 것은 신뢰가 아니라 연출입니다. 진행 중인 상태를 투명하게 보여줄 때 서비스의 진정성이 드러납니다."</blockquote>
+            <cite>노써치 검증 운영 원칙</cite>
+          </div>
+          <div class="insight-card">
+            <h3>진척도 공개가 만드는 효과</h3>
+            <ul class="list">
+              <li>사용자가 현재 상태를 오해 없이 이해하도록 돕습니다</li>
+              <li>완성 전에도 서비스에 대한 기대를 만들어 재방문을 유도합니다</li>
+              <li>업데이트 일정을 약속처럼 공개해 팀 내 실행력도 높입니다</li>
+              <li>노써치의 "직접 검증" 철학을 행동으로 증명하는 장치가 됩니다</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 연결 페이지 -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>함께 보면 좋은 페이지</h2>
+          </div>
+        </div>
+        <div class="card-grid three">
+          <a class="feature-card" href="verification.html">
+            <span class="chip green">검증</span>
+            <h3>테스트 방법론</h3>
+            <p>각 카테고리를 어떤 기준으로 측정하고 교차 검증하는지 전체 프로세스를 설명합니다.</p>
+          </a>
+          <a class="feature-card" href="update-schedule.html">
+            <span class="chip">업데이트</span>
+            <h3>운영 캘린더 전체</h3>
+            <p>빨강/노랑/초록 우선순위 기준과 시즌 예외 규칙, 개정 이력까지 자세히 확인합니다.</p>
+          </a>
+          <a class="feature-card" href="main.html">
+            <span class="chip gray">메인</span>
+            <h3>서비스 허브로 돌아가기</h3>
+            <p>구매가이드, 노써치픽, 가격 추적, 검증 프로세스를 하나의 흐름으로 연결한 메인 허브입니다.</p>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-column">
+        <a class="brand" href="index.html">
+          <span class="brand-mark">N</span>
+          <span class="brand-copy"><strong>노써치</strong><span>nosearch</span></span>
+        </a>
+        <p class="footer-meta">진행 중인 상태를 공개하는 것이 노써치 신뢰의 출발점입니다.</p>
+      </div>
+      <div class="footer-column">
+        <h4>Explore</h4>
+        <a href="main.html">메인</a>
+        <a href="guides.html">구매가이드</a>
+        <a href="picks.html">노써치픽</a>
+        <a href="categories.html">카테고리</a>
+      </div>
+      <div class="footer-column">
+        <h4>Trust</h4>
+        <a href="test-progress.html">테스트 진척도</a>
+        <a href="update-schedule.html">업데이트 일정</a>
+        <a href="verification.html">검증 프로세스</a>
+        <a href="price-watch.html">가격 추적</a>
+      </div>
+      <div class="footer-column">
+        <h4>Company</h4>
+        <a href="about.html">회사 소개</a>
+        <a href="lab.html">노써치 랩</a>
+        <a href="partnership.html">제휴 문의</a>
+        <a href="contact.html">문의하기</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
