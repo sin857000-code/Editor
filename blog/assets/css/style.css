@@ -98,6 +98,18 @@ main.container { padding-top: 2rem; padding-bottom: 3rem; }
   color: var(--text-muted);
 }
 
+/* Card image */
+.post-card-img-link { display: block; }
+.post-card-img {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: var(--radius) var(--radius) 0 0;
+  display: block;
+}
+.post-card-body { padding: 1.4rem; }
+.post-card:has(.post-card-img) { padding: 0; }
+
 .no-posts { text-align: center; color: var(--text-muted); padding: 3rem 0; }
 
 /* Pagination */
@@ -115,6 +127,19 @@ main.container { padding-top: 2rem; padding-bottom: 3rem; }
   padding: .4rem .9rem;
   border: 1px solid var(--green);
   border-radius: var(--radius);
+}
+
+/* Post thumbnail */
+.post-thumbnail {
+  margin: -2rem -2rem 1.8rem;
+  border-radius: var(--radius) var(--radius) 0 0;
+  overflow: hidden;
+}
+.post-thumbnail img {
+  width: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  display: block;
 }
 
 /* Post */

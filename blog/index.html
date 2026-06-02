@@ -9,6 +9,12 @@ title: "최신 이적 뉴스"
   <div class="post-list">
     {% for post in paginator.posts %}
     <article class="post-card">
+      {% if post.image %}
+      <a href="{{ post.url | relative_url }}" class="post-card-img-link">
+        <img src="{{ post.image }}" alt="{{ post.title }}" class="post-card-img" loading="lazy">
+      </a>
+      {% endif %}
+      <div class="post-card-body">
       <div class="post-card-meta">
         <span class="post-category">{{ post.category | default: "이적 뉴스" }}</span>
         <time datetime="{{ post.date | date_to_xmlschema }}">
@@ -22,6 +28,7 @@ title: "최신 이적 뉴스"
       {% if post.source_name %}
       <span class="post-source-tag">출처: {{ post.source_name }}</span>
       {% endif %}
+      </div>
     </article>
     {% else %}
     <p class="no-posts">아직 포스트가 없습니다. 곧 최신 이적 뉴스가 업데이트됩니다.</p>
