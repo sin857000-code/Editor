@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Football transfer news crawler + Claude API translator + DALL-E 3 image generator
+Football transfer news crawler + Claude API translator
++ Pollinations.ai image generator (free, no API key)
 + Instagram Graph API auto-poster.
 """
 
@@ -16,7 +17,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import anthropic
-from openai import OpenAI
 
 REPO_ROOT = Path(__file__).parent.parent
 POSTS_DIR = REPO_ROOT / "blog" / "_posts"
@@ -25,6 +25,9 @@ SEEN_FILE  = REPO_ROOT / "scripts" / ".seen_ids.json"
 
 MAX_NEW_POSTS = 5
 MIN_POSTS = 3
+
+# Pollinations.ai — free, no API key, no signup
+POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}"
 
 RSS_SOURCES = [
     {"name": "Sky Sports Transfers", "url": "https://www.skysports.com/rss/12040"},
@@ -54,16 +57,20 @@ BASE_HASHTAGS = [
     "#분데스리가", "#세리에A", "#리그앙", "#챔피언스리그",
 ]
 
+
 def load_seen() -> set:
     if SEEN_FILE.exists():
         return set(json.loads(SEEN_FILE.read_text()))
     return set()
 
+
 def save_seen(seen: set):
     SEEN_FILE.write_text(json.dumps(sorted(seen), indent=2, ensure_ascii=False))
 
+
 def item_id(url: str) -> str:
     return hashlib.md5(url.encode()).hexdigest()[:12]
+
 
 def fetch_rss(source: dict) -> list[dict]:
     items = []
@@ -94,17 +101,20 @@ def fetch_rss(source: dict) -> list[dict]:
         print(f"  [WARN] {source['name']}: {e}")
     return items
 
+
 def is_transfer_related(item: dict) -> bool:
     text = (item["title"] + " " + item["description"]).lower()
     return any(kw in text for kw in TRANSFER_KEYWORDS)
+
 
 def slugify(text: str) -> str:
     text = re.sub(r"[^\w\s-]", "", text.lower())
     text = re.sub(r"[\s_]+", "-", text.strip())
     return text[:80]
 
+
 def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
-    prompt = f"""다음은 해외 축구 이적 뉴스 기사입니다. 아래 지시에 따라 한국어 블로그 포스트와 인스타그램 게시물을 함께 작성해주세요.
+    prompt = f"""다음은 해외 축구 이적 뉴스 기사입니다. 아래 지시에 따라 한국어 블로그 포스트와 인스타그램 게시물을 함글 작성해주세요.
 
 원문 제목: {item['title']}
 원문 내용: {item['description']}
@@ -115,7 +125,7 @@ def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
 2. category: 영입 확정 / 이적 협상 / 임대 / 방출/계약만료 / 이적 소문 중 하나.
 3. content: 블로그용 200~400자 본문. 사실만 전달, 과장 금지.
 4. instagram_caption: 인스타그램용 캡션. 이모지 2~3개 포함, 핵심 내용 3~4줄, 자연스럽고 친근한 말투. 해시태그 제외.
-5. image_prompt: DALL-E 3용 영어 프롬프트. 이적 뉴스를 상징하는 축구 장면. 실제 선수 얼굴/이름/유니폼 번호/팀 로고 절대 포함 금지. square composition, vibrant colors 명시.
+5. image_prompt: 이적 뉴스를 상징하는 축구 장면 영어 프롬프트. 실제 선수 얼굴/이름/유니폼 번호/팀 로고 절대 포함 금지. square composition, vibrant colors, digital art style 명시.
 
 반드시 아래 JSON 형식으로만 응답:
 {{"title":"...","category":"...","content":"...","instagram_caption":"...","image_prompt":"..."}}"""
@@ -134,53 +144,73 @@ def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
         print(f"  [WARN] Translation failed: {e}")
         return None
 
-def generate_image(openai_client: OpenAI, prompt: str, slug: str, date: datetime.datetime) -> tuple[str | None, str | None]:
+
+def generate_image(prompt: str, slug: str, date: datetime.datetime) -> tuple[str | None, str | None]:
+    """Generate image via Pollinations.ai (free, no API key).
+    Returns (local_path, public_url).
+    """
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{date.strftime('%Y%m%d')}-{slug[:50]}.png"
+    filename = f"{date.strftime('%Y%m%d')}-{slug[:50]}.jpg"
     filepath = IMAGES_DIR / filename
+
+    if filepath.exists():
+        public_url = POLLINATIONS_URL.format(
+            prompt=urllib.parse.quote(prompt),
+            seed=int(hashlib.md5(slug.encode()).hexdigest(), 16) % 100000,
+        )
+        return str(filepath), public_url
+
     full_prompt = (
         prompt.rstrip(".")
-        + ". Square composition 1:1, digital illustration, vibrant colors, "
-          "no text, no logos, no player faces, football/soccer theme, "
-          "cinematic lighting, high quality."
+        + ", square 1:1, digital illustration, vibrant colors, "
+          "no text overlay, no logos, no player faces, football soccer theme, "
+          "cinematic lighting"
     )
+    seed = int(hashlib.md5(slug.encode()).hexdigest(), 16) % 100000
+    url = POLLINATIONS_URL.format(
+        prompt=urllib.parse.quote(full_prompt),
+        seed=seed,
+    )
+
     try:
-        response = openai_client.images.generate(
-            model="dall-e-3",
-            prompt=full_prompt,
-            size="1024x1024",
-            quality="standard",
-            n=1,
-        )
-        temp_url = response.data[0].url
-        req = urllib.request.Request(temp_url, headers={"User-Agent": "FootballBot/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        req = urllib.request.Request(url, headers={"User-Agent": "FootballBot/1.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
             filepath.write_bytes(resp.read())
         print(f"  [IMG] {filename}")
-        return str(filepath), temp_url
+        return str(filepath), url
     except Exception as e:
         print(f"  [WARN] Image generation failed: {e}")
         return None, None
 
+
 class InstagramPoster:
     BASE = "https://graph.instagram.com/v21.0"
+
     def __init__(self, user_id: str, access_token: str):
         self.user_id = user_id
         self.token = access_token
+
     def _post(self, path: str, data: dict) -> dict:
         payload = urllib.parse.urlencode({**data, "access_token": self.token}).encode()
         req = urllib.request.Request(f"{self.BASE}{path}", data=payload, method="POST")
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read())
+
     def post_image(self, image_url: str, caption: str) -> str | None:
         try:
-            container = self._post(f"/{self.user_id}/media", {"image_url": image_url, "caption": caption})
+            container = self._post(
+                f"/{self.user_id}/media",
+                {"image_url": image_url, "caption": caption},
+            )
             creation_id = container.get("id")
             if not creation_id:
                 print(f"  [WARN] Instagram: no creation_id — {container}")
                 return None
-            result = self._post(f"/{self.user_id}/media_publish", {"creation_id": creation_id})
+            result = self._post(
+                f"/{self.user_id}/media_publish",
+                {"creation_id": creation_id},
+            )
             media_id = result.get("id")
             print(f"  [IG] Posted — media_id: {media_id}")
             return media_id
@@ -192,12 +222,14 @@ class InstagramPoster:
             print(f"  [WARN] Instagram error: {e}")
             return None
 
+
 def build_instagram_caption(translated: dict) -> str:
     category = translated.get("category", "이적 소문")
     caption_body = translated.get("instagram_caption", translated.get("content", ""))
     cat_tags = CATEGORY_HASHTAGS.get(category, ["#축구이적"])
     hashtags = " ".join(cat_tags + BASE_HASHTAGS)
     return f"{caption_body}\n\n{hashtags}"
+
 
 def write_post(item: dict, translated: dict, image_path: str | None, date: datetime.datetime):
     slug = slugify(translated["title"])
@@ -231,58 +263,72 @@ source_url: "{item['source_url']}"
     print(f"  [POST] {filepath.name}")
     return filepath
 
+
 def main():
-    anthropic_key  = os.environ.get("ANTHROPIC_API_KEY")
-    openai_key     = os.environ.get("OPENAI_API_KEY")
-    ig_user_id     = os.environ.get("INSTAGRAM_USER_ID")
-    ig_token       = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    ig_user_id    = os.environ.get("INSTAGRAM_USER_ID")
+    ig_token      = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+
     if not anthropic_key:
         raise SystemExit("ANTHROPIC_API_KEY not set")
-    if not openai_key:
-        raise SystemExit("OPENAI_API_KEY not set")
+
     instagram_enabled = bool(ig_user_id and ig_token)
     if not instagram_enabled:
         print("[INFO] Instagram secrets not set — skipping Instagram posting")
+
     POSTS_DIR.mkdir(parents=True, exist_ok=True)
-    claude        = anthropic.Anthropic(api_key=anthropic_key)
-    openai_client = OpenAI(api_key=openai_key)
-    ig_poster     = InstagramPoster(ig_user_id, ig_token) if instagram_enabled else None
-    seen          = load_seen()
-    now           = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    claude    = anthropic.Anthropic(api_key=anthropic_key)
+    ig_poster = InstagramPoster(ig_user_id, ig_token) if instagram_enabled else None
+    seen      = load_seen()
+    now       = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
     print(f"[{now.strftime('%Y-%m-%d %H:%M')} KST] Fetching RSS feeds...")
+
     all_items = []
     for source in RSS_SOURCES:
         items = fetch_rss(source)
         transfer_items = [i for i in items if is_transfer_related(i)]
         print(f"  {source['name']}: {len(items)} total, {len(transfer_items)} transfer-related")
         all_items.extend(transfer_items)
+
     new_items = [i for i in all_items if item_id(i["source_url"]) not in seen]
     print(f"\nNew: {len(new_items)} items (skipping {len(all_items) - len(new_items)} seen)\n")
+
     if not new_items:
         print("Nothing new. Exiting.")
         return
+
     posted = 0
     for item in new_items[:MAX_NEW_POSTS]:
         print(f"── {item['title'][:70]}")
+
         translated = translate_item(claude, item)
         if not translated:
             continue
+
         post_time = now - datetime.timedelta(minutes=posted * 3)
         slug = slugify(translated["title"])
-        local_path, temp_url = None, None
+
+        # Pollinations.ai 이미지 생성 (무료, API 키 불필요)
+        local_path, public_url = None, None
         if translated.get("image_prompt"):
-            local_path, temp_url = generate_image(openai_client, translated["image_prompt"], slug, post_time)
-        if ig_poster and temp_url:
+            local_path, public_url = generate_image(translated["image_prompt"], slug, post_time)
+
+        # Instagram 포스팅 (public_url은 영구 접근 가능한 Pollinations URL)
+        if ig_poster and public_url:
             caption = build_instagram_caption(translated)
-            ig_poster.post_image(temp_url, caption)
+            ig_poster.post_image(public_url, caption)
+
         write_post(item, translated, local_path, post_time)
         seen.add(item_id(item["source_url"]))
         posted += 1
         print()
+
     save_seen(seen)
     print(f"Done. {posted} post(s) created.")
     if posted < MIN_POSTS:
         print(f"[WARN] Only {posted} posts (target >= {MIN_POSTS})")
+
 
 if __name__ == "__main__":
     main()
