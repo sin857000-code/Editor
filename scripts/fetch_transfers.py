@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Football transfer news crawler + Claude API translator + Pollinations.ai image generator
-+ Instagram Graph API auto-poster.
+Football transfer news crawler + Claude API translator
++ Carousel card image generator (HTML/Playwright, 1080×1350)
++ Instagram carousel auto-poster via GitHub raw URLs.
 
 Flow per post:
   1. RSS fetch & filter (24h window)
-  2. Claude: translate → Korean title/content/hashtags + image prompt
-  3. Pollinations.ai: generate 1024×1024 image (free, no API key)
-  4. Instagram Graph API: post image + caption
-  5. Save image to blog/assets/images/ + write Jekyll _posts/ markdown
+  2. Claude: translate → Korean blog content + 5-slide carousel data
+  3. Playwright: render 5 HTML slides → PNG (1080×1350)
+  4. Write Jekyll _posts/ markdown (blog)
+  5. Save .instagram_queue.json (posted by post_instagram_carousel.py after git push)
 """
 
 import os
@@ -20,23 +21,25 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import xml.etree.ElementTree as ET
-from pathlib import Path
 import email.utils
+from pathlib import Path
 
 import anthropic
 
 # ── Config ────────────────────────────────────────────────────────────────────────────
 
-REPO_ROOT = Path(__file__).parent.parent
-POSTS_DIR = REPO_ROOT / "blog" / "_posts"
+REPO_ROOT  = Path(__file__).parent.parent
+POSTS_DIR  = REPO_ROOT / "blog" / "_posts"
 IMAGES_DIR = REPO_ROOT / "blog" / "assets" / "images"
 SEEN_FILE  = REPO_ROOT / "scripts" / ".seen_ids.json"
+QUEUE_FILE = REPO_ROOT / "scripts" / ".instagram_queue.json"
 
 MAX_NEW_POSTS = 5
-MIN_POSTS = 3
+MIN_POSTS     = 3
 MAX_AGE_HOURS = 24
 
-POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}"
+GITHUB_REPO   = os.environ.get("GITHUB_REPO", "sin857000-code/Editor")
+GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
 
 RSS_SOURCES = [
     {"name": "Sky Sports Transfers", "url": "https://www.skysports.com/rss/12040"},
@@ -78,6 +81,16 @@ def save_seen(seen: set):
     SEEN_FILE.write_text(json.dumps(sorted(seen), indent=2, ensure_ascii=False))
 
 
+def load_queue() -> list:
+    if QUEUE_FILE.exists():
+        return json.loads(QUEUE_FILE.read_text())
+    return []
+
+
+def save_queue(queue: list):
+    QUEUE_FILE.write_text(json.dumps(queue, indent=2, ensure_ascii=False))
+
+
 def item_id(url: str) -> str:
     return hashlib.md5(url.encode()).hexdigest()[:12]
 
@@ -94,11 +107,11 @@ def parse_pub_date(pub_date: str) -> datetime.datetime | None:
 def is_recent(item: dict, now: datetime.datetime) -> bool:
     dt = parse_pub_date(item.get("pub_date", ""))
     if dt is None:
-        return True  # date unknown → include
+        return True
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=datetime.timezone.utc)
-    age_hours = (now.astimezone(datetime.timezone.utc) - dt.astimezone(datetime.timezone.utc)).total_seconds() / 3600
-    return age_hours <= MAX_AGE_HOURS
+    age = (now.astimezone(datetime.timezone.utc) - dt.astimezone(datetime.timezone.utc)).total_seconds() / 3600
+    return age <= MAX_AGE_HOURS
 
 
 def fetch_rss(source: dict) -> list[dict]:
@@ -142,10 +155,10 @@ def slugify(text: str) -> str:
     return text[:80]
 
 
-# ── Claude: translate + generate prompts ─────────────────────────────────────────────────
+# ── Claude: translate + carousel data ────────────────────────────────────────────
 
 def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
-    prompt = f"""당신은 해외 축구를 깊이 아는 한국인 축구 전문 기자입니다. 아래 이적 뉴스를 바탕으로 한국 축구 팬들이 흥미롭게 읽을 수 있는 블로그 포스트와 인스타그램 게시물을 작성하세요.
+    prompt = f"""당신은 해외 축구를 깊이 아는 한국인 축구 전문 기자입니다. 아래 이적 뉴스를 바탕으로 블로그 포스트와 인스타그램 캐러셀 카드뉴스를 함께 작성하세요.
 
 원문 제목: {item['title']}
 원문 내용: {item['description']}
@@ -154,38 +167,62 @@ def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
 작성 지침:
 
 1. title (제목)
-   - 한국 팬에게 익숙한 선수명/팀명 표기
-   - 클릭하고 싶은 강렴한 제목. 숫자·금액·팀명으로 임팩트를 줘도 좀우는 방향으로
+   - 클릭하고 싶은 강렴한 한국어 제목. 숫자·금액·팀명으로 임팩트를 줘도 좋음
    - 예: "€8000만 등가 보유자, 드디어 미득랜드로 화려하게 입성"
 
 2. category: 영입 확정 / 이적 협상 / 임대 / 방출/계약만료 / 이적 소문 중 하나
 
 3. content (블로그 본문, 800~1200자)
-   구조:
-   [단락1 — 핵심 팩트] 이적 사실을 명확하고 생생하게 전달. 이적료·계약기간·조건 등 숫자 강조.
-   [단락2 — 맥락과 의미] 이 선수가 왜 중요한지, 해당 팀에게 어떤 의미인지. 최근 시즘 성적·역할·팀의 공백을 구체적으로 설명.
-   [단락3 — 전망과 팬 반응] 이 이적이 리그 판도에 미치는 영향, 기대 또는 우려. 팬 입장에서 설레거나 아쉬운 포인트를 짚어줌.
-
-   문체: 전문적이지만 친근함. 축구 팬끼리 이야기하는 느낌. 단순 번역이 아닌 기자의 시각과 평가가 담긴 글.
+   [단락1 — 핵심 팩트] 이적료·계약기간·조건 등 숫자 강조.
+   [단락2 — 맥락과 의미] 선수 중요성, 팀에게 어떤 의미인지, 최근 성적·역할.
+   [단락3 — 전망과 팬 반응] 리그 판도 영향, 팬 입장의 설레임 또는 우려.
+   문체: 전문적이지만 친근함. 기자의 시각과 평가가 담긴 글.
 
 4. instagram_caption (인스타그램 캡션)
-   - 이모지 3~5개로 감정·강도 표현
-   - 5~7줄 구성: 훅 첫 줄 → 핵심 내용 → 의미/반응 → 마무리 한 줄
-   - 독자가 저장하거나 공유하고 싶을 만큼 압축적이고 감각적으로
-   - 해시태그 제외 (별도 추가됨)
+   - 이모지 3~5개, 5~7줄
+   - 훅 첫 줄 → 핵심 → 의미/반응 → 마무리
+   - 해시태그 제외
 
-5. image_prompt (이미지 생성용 영어 프롬프트)
-   - 이적 뉴스의 분위기를 상징하는 축구 장면
-   - 실제 선수 얼굴·이름·유니폼 번호·팀 로고 절대 포함 금지
-   - square composition, vibrant colors, cinematic lighting 명시
+5. slides (캐러셀 카드뉴스 5장 데이터 — 정확한 형식 필수)
+   {{
+     "cover": {{
+       "headline": "이적 핵심을 담은 임팩트 있는 한 줄 (최대 20자)",
+       "headline_accent": "headline 중 오렌지로 강조할 단어 하나 (예: 이적 확정)",
+       "meta": "팀명 → 팀명 · 이적료 · 계약기간"
+     }},
+     "fact": {{
+       "label": "TRANSFER FACT",
+       "title": "이적 기본 정보",
+       "facts": [
+         {{"key": "이적료", "value": "€XXXX만", "accent": true}},
+         {{"key": "계약기간", "value": "X년", "accent": false}},
+         {{"key": "출신팀", "value": "팀명", "accent": false}},
+         {{"key": "영입팀", "value": "팀명", "accent": false}}
+       ]
+     }},
+     "player": {{
+       "label": "WHY THIS PLAYER",
+       "title": "왜 이 선수인가",
+       "bullets": ["강점 또는 특징 1 (20자 이내)", "강점 2", "강점 3", "강점 4"]
+     }},
+     "impact": {{
+       "label": "IMPACT",
+       "title": "이 이적이 바꾸는 것",
+       "bullets": ["리그/팀에 미치는 영향 1", "리그/팀에 미치는 영향 2", "팬 반응 또는 전망 3", "기대 포인트 4"]
+     }},
+     "outro": {{
+       "headline": "Outro 마무리 문구 (한 줄, 20자 이내)",
+       "sub": "팔로우/저장 유도 한 줄"
+     }}
+   }}
 
 반드시 아래 JSON 형식으로만 응답 (다른 텍스트 없이):
-{{"title":"...","category":"...","content":"...","instagram_caption":"...","image_prompt":"..."}}"""
+{{"title":"...","category":"...","content":"...","instagram_caption":"...","slides":{{...}}}}"""
 
     try:
         message = claude.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=2000,
+            max_tokens=2500,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = message.content[0].text.strip()
@@ -198,95 +235,32 @@ def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
         return None
 
 
-# ── Pollinations.ai: image generation ────────────────────────────────────────────────────────
+# ── Carousel generation ────────────────────────────────────────────────────────────────────
 
-def generate_image(prompt: str, slug: str, date: datetime.datetime) -> tuple[str | None, str | None]:
-    """
-    Returns (local_path, image_url).
-    Uses Pollinations.ai — free, no API key required.
-    """
-    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{date.strftime('%Y%m%d')}-{slug[:50]}.png"
-    filepath = IMAGES_DIR / filename
-
-    full_prompt = (
-        prompt.rstrip(".")
-        + ". Square composition 1:1, digital illustration, vibrant colors, "
-          "no text, no logos, no player faces, football/soccer theme, "
-          "cinematic lighting, high quality."
-    )
-
-    seed = int(hashlib.md5(slug.encode()).hexdigest()[:8], 16) % 100000
-    encoded = urllib.parse.quote(full_prompt)
-    url = POLLINATIONS_URL.format(prompt=encoded, seed=seed)
-
+def generate_carousel(slides_data: dict, slug: str, date: datetime.datetime) -> list[Path]:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "FootballBot/1.0"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            filepath.write_bytes(resp.read())
-        print(f"  [IMG] {filename}")
-        return str(filepath), url
-    except Exception as e:
-        print(f"  [WARN] Image generation failed: {e}")
-        return None, None
+        from carousel_gen import build_carousel
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from carousel_gen import build_carousel
+
+    out_dir = IMAGES_DIR / "carousel" / f"{date.strftime('%Y%m%d')}-{slug[:40]}"
+    return build_carousel(slides_data, out_dir)
 
 
-# ── Instagram Graph API ───────────────────────────────────────────────────────────────────────
-
-class InstagramPoster:
-    BASE = "https://graph.instagram.com/v21.0"
-
-    def __init__(self, user_id: str, access_token: str):
-        self.user_id = user_id
-        self.token = access_token
-
-    def _post(self, path: str, data: dict) -> dict:
-        payload = urllib.parse.urlencode({**data, "access_token": self.token}).encode()
-        req = urllib.request.Request(f"{self.BASE}{path}", data=payload, method="POST")
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
-
-    def post_image(self, image_url: str, caption: str) -> str | None:
-        """Create media container then publish. Returns media ID on success."""
-        try:
-            container = self._post(
-                f"/{self.user_id}/media",
-                {"image_url": image_url, "caption": caption},
-            )
-            creation_id = container.get("id")
-            if not creation_id:
-                print(f"  [WARN] Instagram: no creation_id — {container}")
-                return None
-
-            result = self._post(
-                f"/{self.user_id}/media_publish",
-                {"creation_id": creation_id},
-            )
-            media_id = result.get("id")
-            print(f"  [IG] Posted — media_id: {media_id}")
-            return media_id
-
-        except urllib.error.HTTPError as e:
-            body = e.read().decode()
-            print(f"  [WARN] Instagram HTTP {e.code}: {body}")
-            return None
-        except Exception as e:
-            print(f"  [WARN] Instagram error: {e}")
-            return None
-
-
-def build_instagram_caption(translated: dict) -> str:
-    category = translated.get("category", "이적 소문")
-    caption_body = translated.get("instagram_caption", translated.get("content", ""))
-    cat_tags = CATEGORY_HASHTAGS.get(category, ["#축구이적"])
-    hashtags = " ".join(cat_tags + BASE_HASHTAGS)
-    return f"{caption_body}\n\n{hashtags}"
+def carousel_raw_urls(slide_paths: list[Path]) -> list[str]:
+    urls = []
+    for p in slide_paths:
+        rel = p.relative_to(REPO_ROOT)
+        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/{rel}"
+        urls.append(url)
+    return urls
 
 
 # ── Blog post writer ──────────────────────────────────────────────────────────────────────────
 
-def write_post(item: dict, translated: dict, image_path: str | None, date: datetime.datetime):
+def write_post(item: dict, translated: dict, slide_paths: list[Path] | None, date: datetime.datetime) -> Path:
     slug = slugify(translated["title"])
     filename = f"{date.strftime('%Y-%m-%d')}-{slug}.md"
     filepath = POSTS_DIR / filename
@@ -296,12 +270,15 @@ def write_post(item: dict, translated: dict, image_path: str | None, date: datet
         filepath = POSTS_DIR / f"{date.strftime('%Y-%m-%d')}-{slug}-{counter}.md"
         counter += 1
 
-    rel_image = None
-    if image_path:
-        rel_image = "/blog/assets/images/" + Path(image_path).name
-
-    image_line = f'image: "{rel_image}"' if rel_image else ""
-    image_md   = f"![썸네일]({rel_image})\n\n" if rel_image else ""
+    thumb_line = ""
+    carousel_md = ""
+    if slide_paths:
+        thumb_rel = "/blog/assets/images/carousel/" + slide_paths[0].parent.name + "/" + slide_paths[0].name
+        thumb_line = f'image: "{thumb_rel}"'
+        carousel_md = "\n".join(
+            f'![슬라이드 {i+1}](/blog/assets/images/carousel/{p.parent.name}/{p.name})'
+            for i, p in enumerate(slide_paths)
+        ) + "\n\n"
 
     content = f"""---
 layout: post
@@ -310,10 +287,10 @@ date: {date.strftime('%Y-%m-%d %H:%M:%S')} +0900
 category: "{translated['category']}"
 source_name: "{item['source_name']}"
 source_url: "{item['source_url']}"
-{image_line}
+{thumb_line}
 ---
 
-{image_md}{translated['content']}
+{carousel_md}{translated['content']}
 
 ---
 *원문: [{item['source_name']}]({item['source_url']})*
@@ -326,22 +303,24 @@ source_url: "{item['source_url']}"
 # ── Main ──────────────────────────────────────────────────────────────────────────────────
 
 def main():
-    anthropic_key  = os.environ.get("ANTHROPIC_API_KEY")
-    ig_user_id     = os.environ.get("INSTAGRAM_USER_ID")
-    ig_token       = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    ig_user_id    = os.environ.get("INSTAGRAM_USER_ID")
+    ig_token      = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
 
     if not anthropic_key:
         raise SystemExit("ANTHROPIC_API_KEY not set")
 
     instagram_enabled = bool(ig_user_id and ig_token)
     if not instagram_enabled:
-        print("[INFO] Instagram secrets not set — skipping Instagram posting")
+        print("[INFO] Instagram secrets not set — carousel URLs will be queued but not posted")
 
     POSTS_DIR.mkdir(parents=True, exist_ok=True)
-    claude    = anthropic.Anthropic(api_key=anthropic_key)
-    ig_poster = InstagramPoster(ig_user_id, ig_token) if instagram_enabled else None
-    seen      = load_seen()
-    now       = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+    claude = anthropic.Anthropic(api_key=anthropic_key)
+    seen   = load_seen()
+    queue  = load_queue()
+    now    = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
 
     print(f"[{now.strftime('%Y-%m-%d %H:%M')} KST] Fetching RSS feeds...")
 
@@ -370,20 +349,35 @@ def main():
         post_time = now - datetime.timedelta(minutes=posted * 3)
         slug = slugify(translated["title"])
 
-        local_path, image_url = None, None
-        if translated.get("image_prompt"):
-            local_path, image_url = generate_image(translated["image_prompt"], slug, post_time)
+        slide_paths = None
+        slides_data = translated.get("slides")
+        if slides_data:
+            try:
+                slide_paths = generate_carousel(slides_data, slug, post_time)
+            except Exception as e:
+                print(f"  [WARN] Carousel generation failed: {e}")
 
-        if ig_poster and image_url:
-            caption = build_instagram_caption(translated)
-            ig_poster.post_image(image_url, caption)
+        write_post(item, translated, slide_paths, post_time)
 
-        write_post(item, translated, local_path, post_time)
+        if instagram_enabled and slide_paths:
+            raw_urls = carousel_raw_urls(slide_paths)
+            cat_tags = CATEGORY_HASHTAGS.get(translated.get("category", ""), ["#축구이적"])
+            hashtags = " ".join(cat_tags + BASE_HASHTAGS)
+            caption  = translated.get("instagram_caption", translated.get("content", ""))
+            queue.append({
+                "caption":    f"{caption}\n\n{hashtags}",
+                "image_urls": raw_urls,
+                "ig_user_id": ig_user_id,
+                "ig_token":   ig_token,
+            })
+            print(f"  [IG] Queued carousel ({len(raw_urls)} slides)")
+
         seen.add(item_id(item["source_url"]))
         posted += 1
         print()
 
     save_seen(seen)
+    save_queue(queue)
     print(f"Done. {posted} post(s) created.")
     if posted < MIN_POSTS:
         print(f"[WARN] Only {posted} posts (target ≥ {MIN_POSTS})")
