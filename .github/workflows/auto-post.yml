@@ -2,11 +2,10 @@ name: Auto Post Transfer News
 
 on:
   schedule:
-    # 9:00 KST (00:00 UTC), 15:00 KST (06:00 UTC), 21:00 KST (12:00 UTC)
     - cron: "0 0 * * *"
     - cron: "0 6 * * *"
     - cron: "0 12 * * *"
-  workflow_dispatch:  # 수동 실행 가능
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -30,8 +29,8 @@ jobs:
 
       - name: Fetch, translate, and post
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.CLAUDE }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI }}
           INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
           INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
         run: python scripts/fetch_transfers.py
