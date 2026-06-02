@@ -6,7 +6,7 @@ on:
     - cron: "0 0 * * *"
     - cron: "0 6 * * *"
     - cron: "0 12 * * *"
-  workflow_dispatch:  # 수동 실행 가능
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -25,23 +25,41 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install anthropic openai
+      - name: Install Python dependencies
+        run: pip install anthropic playwright
 
-      - name: Fetch, translate, and post
+      - name: Install Chromium for Playwright
+        run: playwright install chromium --with-deps
+
+      - name: Generate carousel images and blog posts
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.CLAUDE }}
           INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
           INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          GITHUB_REPO: sin857000-code/Editor
+          GITHUB_BRANCH: main
         run: python scripts/fetch_transfers.py
 
-      - name: Commit and push new posts
+      # Push first so carousel images are publicly accessible via raw.githubusercontent.com
+      - name: Commit and push images + posts + queue
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add blog/_posts/ blog/assets/images/ scripts/.seen_ids.json
+          git add blog/_posts/ blog/assets/images/ scripts/.seen_ids.json scripts/.instagram_queue.json
           git diff --cached --quiet && echo "No new posts" && exit 0
           COUNT=$(git diff --cached --name-only | grep "_posts/" | wc -l)
-          git commit -m "chore: auto-post ${COUNT}개 이적 뉴스 ($(date +'%Y-%m-%d %H:%M KST' -d '+9 hours'))"
+          git commit -m "chore: auto-post ${COUNT}개 이적 카드뉴스 ($(date +'%Y-%m-%d %H:%M KST' -d '+9 hours'))"
+          git push origin HEAD
+
+      # Now that images are on GitHub, post to Instagram using raw URLs
+      - name: Post carousels to Instagram
+        run: python scripts/post_instagram_carousel.py
+
+      - name: Commit cleared queue
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scripts/.instagram_queue.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: clear instagram queue"
           git push origin HEAD
