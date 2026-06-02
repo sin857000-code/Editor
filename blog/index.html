@@ -1,0 +1,42 @@
+---
+layout: default
+title: "최신 이적 뉴스"
+---
+<div class="home">
+  <h1 class="page-title">최신 이적 뉴스</h1>
+  <p class="page-desc">해외 주요 매체의 이적 소식을 매일 한국어로 전달합니다.</p>
+
+  <div class="post-list">
+    {% for post in paginator.posts %}
+    <article class="post-card">
+      <div class="post-card-meta">
+        <span class="post-category">{{ post.category | default: "이적 뉴스" }}</span>
+        <time datetime="{{ post.date | date_to_xmlschema }}">
+          {{ post.date | date: "%Y.%m.%d %H:%M" }}
+        </time>
+      </div>
+      <h2 class="post-card-title">
+        <a href="{{ post.url | relative_url }}">{{ post.title }}</a>
+      </h2>
+      <p class="post-card-excerpt">{{ post.excerpt | strip_html | truncate: 200 }}</p>
+      {% if post.source_name %}
+      <span class="post-source-tag">출처: {{ post.source_name }}</span>
+      {% endif %}
+    </article>
+    {% else %}
+    <p class="no-posts">아직 포스트가 없습니다. 곧 최신 이적 뉴스가 업데이트됩니다.</p>
+    {% endfor %}
+  </div>
+
+  {% if paginator.total_pages > 1 %}
+  <nav class="pagination">
+    {% if paginator.previous_page %}
+    <a href="{{ paginator.previous_page_path | relative_url }}" class="prev">← 이전</a>
+    {% endif %}
+    <span>{{ paginator.page }} / {{ paginator.total_pages }}</span>
+    {% if paginator.next_page %}
+    <a href="{{ paginator.next_page_path | relative_url }}" class="next">다음 →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</div>

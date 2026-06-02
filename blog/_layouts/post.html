@@ -1,0 +1,27 @@
+---
+layout: default
+---
+<article class="post">
+  <header class="post-header">
+    <div class="post-meta">
+      <span class="post-category">{{ page.category | default: "이적 뉴스" }}</span>
+      <time datetime="{{ page.date | date_to_xmlschema }}">
+        {{ page.date | date: "%Y년 %m월 %d일 %H:%M" }}
+      </time>
+    </div>
+    <h1 class="post-title">{{ page.title }}</h1>
+    {% if page.source_url %}
+    <p class="post-source">
+      원문: <a href="{{ page.source_url }}" target="_blank" rel="noopener">{{ page.source_name | default: "원문 보기" }}</a>
+    </p>
+    {% endif %}
+  </header>
+
+  <div class="post-content">
+    {{ content }}
+  </div>
+
+  <footer class="post-footer">
+    <a href="{{ '/' | relative_url }}" class="back-link">← 목록으로</a>
+  </footer>
+</article>

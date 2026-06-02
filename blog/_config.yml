@@ -1,0 +1,30 @@
+title: "축구 이적 뉴스"
+description: "해외 축구 이적 소식을 매일 빠르게 전합니다"
+baseurl: "/blog"
+url: "https://sin857000-code.github.io"
+lang: ko
+
+timezone: Asia/Seoul
+encoding: UTF-8
+
+permalink: /:year/:month/:day/:title/
+
+markdown: kramdown
+highlighter: rouge
+
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+  - jekyll-seo-tag
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post

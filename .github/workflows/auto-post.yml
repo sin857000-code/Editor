@@ -1,0 +1,44 @@
+name: Auto Post Transfer News
+
+on:
+  schedule:
+    # 9:00 KST (00:00 UTC), 15:00 KST (06:00 UTC), 21:00 KST (12:00 UTC)
+    - cron: "0 0 * * *"
+    - cron: "0 6 * * *"
+    - cron: "0 12 * * *"
+  workflow_dispatch:  # 수동 실행 가능
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Fetch and translate transfer news
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/fetch_transfers.py
+
+      - name: Commit and push new posts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add blog/_posts/ scripts/.seen_ids.json
+          git diff --cached --quiet && echo "No new posts" && exit 0
+          COUNT=$(git diff --cached --name-only | grep "_posts/" | wc -l)
+          git commit -m "chore: auto-post ${COUNT}개 이적 뉴스 ($(date +'%Y-%m-%d %H:%M KST' -d '+9 hours'))"
+          git push origin HEAD
