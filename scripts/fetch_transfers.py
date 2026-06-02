@@ -125,26 +125,47 @@ def slugify(text: str) -> str:
 # ── Claude: translate + generate prompts ─────────────────────────────────────
 
 def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
-    prompt = f"""다음은 해외 축구 이적 뉴스 기사입니다. 아래 지시에 따라 한국어 블로그 포스트와 인스타그램 게시물을 함께 작성해주세요.
+    prompt = f"""당신은 해외 축구를 깊이 아는 한국인 축구 전문 기자입니다. 아래 이적 뉴스를 바탕으로 한국 축구 팬들이 흥미롭게 읽을 수 있는 블로그 포스트와 인스타그램 게시물을 작성하세요.
 
 원문 제목: {item['title']}
 원문 내용: {item['description']}
 출처: {item['source_name']}
 
-지시사항:
-1. title: 한국어 제목. 선수명/팀명은 한국 팬에게 익숙한 표기 사용.
-2. category: 영입 확정 / 이적 협상 / 임대 / 방출/계약만료 / 이적 소문 중 하나.
-3. content: 블로그용 200~400자 본문. 사실만 전달, 과장 금지.
-4. instagram_caption: 인스타그램용 캡션. 이모지 2~3개 포함, 핵심 내용 3~4줄, 자연스럽고 친근한 말투. 해시태그 제외 (별도 추가).
-5. image_prompt: DALL-E 3용 영어 프롬프트. 이적 뉴스를 상징하는 축구 장면 묘사. 실제 선수 얼굴/이름/유니폼 번호/팀 로고 절대 포함 금지. square composition, vibrant colors 명시.
+작성 지침:
 
-반드시 아래 JSON 형식으로만 응답:
+1. title (제목)
+   - 한국 팬에게 익숙한 선수명/팀명 표기
+   - 클릭하고 싶은 강렬한 제목. 숫자·금액·팀명으로 임팩트를 줘도 좋음
+   - 예: "€8000만 몸값 검증 완료 — 아스날, 드디어 원하던 그 선수 잡았다"
+
+2. category: 영입 확정 / 이적 협상 / 임대 / 방출/계약만료 / 이적 소문 중 하나
+
+3. content (블로그 본문, 800~1200자)
+   구조:
+   [단락1 — 핵심 팩트] 이적 사실을 명확하고 생생하게 전달. 이적료·계약기간·조건 등 숫자 강조.
+   [단락2 — 맥락과 의미] 이 선수가 왜 중요한지, 해당 팀에게 어떤 의미인지. 최근 시즌 성적·역할·팀의 공백을 구체적으로 설명.
+   [단락3 — 전망과 팬 반응] 이 이적이 리그 판도에 미치는 영향, 기대 또는 우려. 팬 입장에서 설레거나 아쉬운 포인트를 짚어줌.
+
+   문체: 전문적이지만 친근함. 축구 팬끼리 이야기하는 느낌. 단순 번역이 아닌 기자의 시각과 평가가 담긴 글.
+
+4. instagram_caption (인스타그램 캡션)
+   - 이모지 3~5개로 감정·강도 표현
+   - 5~7줄 구성: 훅 첫 줄 → 핵심 내용 → 의미/반응 → 마무리 한 줄
+   - 독자가 저장하거나 공유하고 싶을 만큼 압축적이고 감각적으로
+   - 해시태그 제외 (별도 추가됨)
+
+5. image_prompt (이미지 생성용 영어 프롬프트)
+   - 이적 뉴스의 분위기를 상징하는 축구 장면
+   - 실제 선수 얼굴·이름·유니폼 번호·팀 로고 절대 포함 금지
+   - square composition, vibrant colors, cinematic lighting 명시
+
+반드시 아래 JSON 형식으로만 응답 (다른 텍스트 없이):
 {{"title":"...","category":"...","content":"...","instagram_caption":"...","image_prompt":"..."}}"""
 
     try:
         message = claude.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=900,
+            max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = message.content[0].text.strip()
