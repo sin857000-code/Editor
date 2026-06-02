@@ -10,6 +10,7 @@ import re
 import json
 import hashlib
 import datetime
+import email.utils
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -25,8 +26,8 @@ SEEN_FILE  = REPO_ROOT / "scripts" / ".seen_ids.json"
 
 MAX_NEW_POSTS = 5
 MIN_POSTS = 3
+MAX_AGE_HOURS = 24  # 24시간 이내 기사만 처리
 
-# Pollinations.ai — free, no API key, no signup
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}"
 
 RSS_SOURCES = [
@@ -72,7 +73,28 @@ def item_id(url: str) -> str:
     return hashlib.md5(url.encode()).hexdigest()[:12]
 
 
-def fetch_rss(source: dict) -> list[dict]:
+def parse_pub_date(pub_date_str: str) -> datetime.datetime | None:
+    """RSS pubDate 를 UTC aware datetime 으로 파싱."""
+    if not pub_date_str:
+        return None
+    try:
+        # email.utils 는 RFC 2822 포맷 (RSS 표준) 파싱 지원
+        ts = email.utils.parsedate_to_datetime(pub_date_str)
+        return ts.astimezone(datetime.timezone.utc)
+    except Exception:
+        return None
+
+
+def is_recent(pub_date_str: str, now_utc: datetime.datetime) -> bool:
+    """MAX_AGE_HOURS 이내 기사인지 확인. pubDate 파싱 실패 시 True 로 허용 (안전측)."""
+    dt = parse_pub_date(pub_date_str)
+    if dt is None:
+        return True  # 날짜 모르면 일단 포함
+    age = now_utc - dt
+    return age.total_seconds() <= MAX_AGE_HOURS * 3600
+
+
+def fetch_rss(source: dict, now_utc: datetime.datetime) -> list[dict]:
     items = []
     try:
         req = urllib.request.Request(
@@ -83,20 +105,27 @@ def fetch_rss(source: dict) -> list[dict]:
             raw = resp.read()
         root = ET.fromstring(raw)
         channel = root.find("channel") or root
+        skipped = 0
         for item in channel.findall("item"):
             title = (item.findtext("title") or "").strip()
             link  = (item.findtext("link")  or "").strip()
             desc  = (item.findtext("description") or "").strip()
             desc  = re.sub(r"<[^>]+>", "", desc).strip()
             pub   = item.findtext("pubDate") or ""
-            if title and link:
-                items.append({
-                    "source_name": source["name"],
-                    "source_url":  link,
-                    "title":       title,
-                    "description": desc[:800],
-                    "pub_date":    pub,
-                })
+            if not title or not link:
+                continue
+            if not is_recent(pub, now_utc):
+                skipped += 1
+                continue
+            items.append({
+                "source_name": source["name"],
+                "source_url":  link,
+                "title":       title,
+                "description": desc[:800],
+                "pub_date":    pub,
+            })
+        if skipped:
+            print(f"    ({skipped}개 오래된 기사 스킵)")
     except Exception as e:
         print(f"  [WARN] {source['name']}: {e}")
     return items
@@ -146,20 +175,12 @@ def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
 
 
 def generate_image(prompt: str, slug: str, date: datetime.datetime) -> tuple[str | None, str | None]:
-    """Generate image via Pollinations.ai (free, no API key).
-    Returns (local_path, public_url).
-    """
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{date.strftime('%Y%m%d')}-{slug[:50]}.jpg"
     filepath = IMAGES_DIR / filename
-
     if filepath.exists():
-        public_url = POLLINATIONS_URL.format(
-            prompt=urllib.parse.quote(prompt),
-            seed=int(hashlib.md5(slug.encode()).hexdigest(), 16) % 100000,
-        )
-        return str(filepath), public_url
-
+        seed = int(hashlib.md5(slug.encode()).hexdigest(), 16) % 100000
+        return str(filepath), POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt), seed=seed)
     full_prompt = (
         prompt.rstrip(".")
         + ", square 1:1, digital illustration, vibrant colors, "
@@ -167,11 +188,7 @@ def generate_image(prompt: str, slug: str, date: datetime.datetime) -> tuple[str
           "cinematic lighting"
     )
     seed = int(hashlib.md5(slug.encode()).hexdigest(), 16) % 100000
-    url = POLLINATIONS_URL.format(
-        prompt=urllib.parse.quote(full_prompt),
-        seed=seed,
-    )
-
+    url = POLLINATIONS_URL.format(prompt=urllib.parse.quote(full_prompt), seed=seed)
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "FootballBot/1.0"})
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -199,24 +216,17 @@ class InstagramPoster:
 
     def post_image(self, image_url: str, caption: str) -> str | None:
         try:
-            container = self._post(
-                f"/{self.user_id}/media",
-                {"image_url": image_url, "caption": caption},
-            )
+            container = self._post(f"/{self.user_id}/media", {"image_url": image_url, "caption": caption})
             creation_id = container.get("id")
             if not creation_id:
                 print(f"  [WARN] Instagram: no creation_id — {container}")
                 return None
-            result = self._post(
-                f"/{self.user_id}/media_publish",
-                {"creation_id": creation_id},
-            )
+            result = self._post(f"/{self.user_id}/media_publish", {"creation_id": creation_id})
             media_id = result.get("id")
             print(f"  [IG] Posted — media_id: {media_id}")
             return media_id
         except urllib.error.HTTPError as e:
-            body = e.read().decode()
-            print(f"  [WARN] Instagram HTTP {e.code}: {body}")
+            print(f"  [WARN] Instagram HTTP {e.code}: {e.read().decode()}")
             return None
         except Exception as e:
             print(f"  [WARN] Instagram error: {e}")
@@ -227,8 +237,7 @@ def build_instagram_caption(translated: dict) -> str:
     category = translated.get("category", "이적 소문")
     caption_body = translated.get("instagram_caption", translated.get("content", ""))
     cat_tags = CATEGORY_HASHTAGS.get(category, ["#축구이적"])
-    hashtags = " ".join(cat_tags + BASE_HASHTAGS)
-    return f"{caption_body}\n\n{hashtags}"
+    return f"{caption_body}\n\n{' '.join(cat_tags + BASE_HASHTAGS)}"
 
 
 def write_post(item: dict, translated: dict, image_path: str | None, date: datetime.datetime):
@@ -239,9 +248,7 @@ def write_post(item: dict, translated: dict, image_path: str | None, date: datet
     while filepath.exists():
         filepath = POSTS_DIR / f"{date.strftime('%Y-%m-%d')}-{slug}-{counter}.md"
         counter += 1
-    rel_image = None
-    if image_path:
-        rel_image = "/blog/assets/images/" + Path(image_path).name
+    rel_image = ("/blog/assets/images/" + Path(image_path).name) if image_path else None
     image_line = f'image: "{rel_image}"' if rel_image else ""
     image_md   = f"![썸네일]({rel_image})\n\n" if rel_image else ""
     content = f"""---
@@ -280,19 +287,20 @@ def main():
     claude    = anthropic.Anthropic(api_key=anthropic_key)
     ig_poster = InstagramPoster(ig_user_id, ig_token) if instagram_enabled else None
     seen      = load_seen()
-    now       = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    now_kst   = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    now_utc   = datetime.datetime.now(datetime.timezone.utc)
 
-    print(f"[{now.strftime('%Y-%m-%d %H:%M')} KST] Fetching RSS feeds...")
+    print(f"[{now_kst.strftime('%Y-%m-%d %H:%M')} KST] Fetching RSS feeds (last {MAX_AGE_HOURS}h only)...")
 
     all_items = []
     for source in RSS_SOURCES:
-        items = fetch_rss(source)
+        items = fetch_rss(source, now_utc)
         transfer_items = [i for i in items if is_transfer_related(i)]
-        print(f"  {source['name']}: {len(items)} total, {len(transfer_items)} transfer-related")
+        print(f"  {source['name']}: {len(items)}개 최신, {len(transfer_items)}개 이적 관련")
         all_items.extend(transfer_items)
 
     new_items = [i for i in all_items if item_id(i["source_url"]) not in seen]
-    print(f"\nNew: {len(new_items)} items (skipping {len(all_items) - len(new_items)} seen)\n")
+    print(f"\nNew: {len(new_items)}개 (이미 처리 {len(all_items) - len(new_items)}개 스킵)\n")
 
     if not new_items:
         print("Nothing new. Exiting.")
@@ -300,24 +308,23 @@ def main():
 
     posted = 0
     for item in new_items[:MAX_NEW_POSTS]:
-        print(f"── {item['title'][:70]}")
+        pub = parse_pub_date(item["pub_date"])
+        pub_str = pub.astimezone(datetime.timezone(datetime.timedelta(hours=9))).strftime("%m/%d %H:%M") if pub else "?"
+        print(f"── [{pub_str} KST] {item['title'][:60]}")
 
         translated = translate_item(claude, item)
         if not translated:
             continue
 
-        post_time = now - datetime.timedelta(minutes=posted * 3)
+        post_time = now_kst - datetime.timedelta(minutes=posted * 3)
         slug = slugify(translated["title"])
 
-        # Pollinations.ai 이미지 생성 (무료, API 키 불필요)
         local_path, public_url = None, None
         if translated.get("image_prompt"):
             local_path, public_url = generate_image(translated["image_prompt"], slug, post_time)
 
-        # Instagram 포스팅 (public_url은 영구 접근 가능한 Pollinations URL)
         if ig_poster and public_url:
-            caption = build_instagram_caption(translated)
-            ig_poster.post_image(public_url, caption)
+            ig_poster.post_image(public_url, build_instagram_caption(translated))
 
         write_post(item, translated, local_path, post_time)
         seen.add(item_id(item["source_url"]))
@@ -325,9 +332,9 @@ def main():
         print()
 
     save_seen(seen)
-    print(f"Done. {posted} post(s) created.")
+    print(f"Done. {posted}개 포스트 생성.")
     if posted < MIN_POSTS:
-        print(f"[WARN] Only {posted} posts (target >= {MIN_POSTS})")
+        print(f"[WARN] {posted}개 생성 (목표 {MIN_POSTS}개 이상)")
 
 
 if __name__ == "__main__":
