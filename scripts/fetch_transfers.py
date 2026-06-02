@@ -26,7 +26,7 @@ SEEN_FILE  = REPO_ROOT / "scripts" / ".seen_ids.json"
 
 MAX_NEW_POSTS = 5
 MIN_POSTS = 3
-MAX_AGE_HOURS = 24  # 24시간 이내 기사만 처리
+MAX_AGE_HOURS = 24
 
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}"
 
@@ -74,11 +74,9 @@ def item_id(url: str) -> str:
 
 
 def parse_pub_date(pub_date_str: str) -> datetime.datetime | None:
-    """RSS pubDate 를 UTC aware datetime 으로 파싱."""
     if not pub_date_str:
         return None
     try:
-        # email.utils 는 RFC 2822 포맷 (RSS 표준) 파싱 지원
         ts = email.utils.parsedate_to_datetime(pub_date_str)
         return ts.astimezone(datetime.timezone.utc)
     except Exception:
@@ -86,12 +84,10 @@ def parse_pub_date(pub_date_str: str) -> datetime.datetime | None:
 
 
 def is_recent(pub_date_str: str, now_utc: datetime.datetime) -> bool:
-    """MAX_AGE_HOURS 이내 기사인지 확인. pubDate 파싱 실패 시 True 로 허용 (안전측)."""
     dt = parse_pub_date(pub_date_str)
     if dt is None:
-        return True  # 날짜 모르면 일단 포함
-    age = now_utc - dt
-    return age.total_seconds() <= MAX_AGE_HOURS * 3600
+        return True
+    return (now_utc - dt).total_seconds() <= MAX_AGE_HOURS * 3600
 
 
 def fetch_rss(source: dict, now_utc: datetime.datetime) -> list[dict]:
@@ -143,25 +139,34 @@ def slugify(text: str) -> str:
 
 
 def translate_item(claude: anthropic.Anthropic, item: dict) -> dict | None:
-    prompt = f"""다음은 해외 축구 이적 뉴스 기사입니다. 아래 지시에 따라 한국어 블로그 포스트와 인스타그램 게시물을 함글 작성해주세요.
+    prompt = f"""다음은 해외 축구 이적 뉴스 기사입니다. 한국 축구 팬들이 즐겨 읽는 블로그 포스트와 인스타그램 게시물을 작성해주세요.
 
 원문 제목: {item['title']}
 원문 내용: {item['description']}
 출처: {item['source_name']}
 
 지시사항:
+
 1. title: 한국어 제목. 선수명/팀명은 한국 팬에게 익숙한 표기 사용.
+
 2. category: 영입 확정 / 이적 협상 / 임대 / 방출/계약만료 / 이적 소문 중 하나.
-3. content: 블로그용 200~400자 본문. 사실만 전달, 과장 금지.
-4. instagram_caption: 인스타그램용 캡션. 이모지 2~3개 포함, 핵심 내용 3~4줄, 자연스럽고 친근한 말투. 해시태그 제외.
+
+3. content: 블로그 본문. **800~1200자** 분량으로 작성.
+   - 단락 1 (이적 핵심 내용): 누가 어디로 가는지, 이적료/계약 조건 등 핵심 사실을 먼저 요약
+   - 단락 2 (선수/팀 배경): 해당 선수의 최근 시즈닝 활약, 영입 팀의 현재 상황, 이적이 의미하는 바를 설명
+   - 단락 3 (향후 전망): 메디열 일정, 추가 협상 사항, 퍤들의 반응 등
+   - 사실만 작성. 원문에 없는 내용은 지어냄. 마크다운 단락 구분(매 단락 사이 빈 줄) 사용.
+
+4. instagram_caption: 인스타그램용 캡션. 이모지 2~3개 포함, 5~7줄, 친근하고 생동감 있는 말투. 해시태그 제외.
+
 5. image_prompt: 이적 뉴스를 상징하는 축구 장면 영어 프롬프트. 실제 선수 얼굴/이름/유니폼 번호/팀 로고 절대 포함 금지. square composition, vibrant colors, digital art style 명시.
 
-반드시 아래 JSON 형식으로만 응답:
+반드시 아래 JSON 형식으로만 응답 (다른 텍스트 없이):
 {{"title":"...","category":"...","content":"...","instagram_caption":"...","image_prompt":"..."}}"""
     try:
         message = claude.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=900,
+            max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = message.content[0].text.strip()
